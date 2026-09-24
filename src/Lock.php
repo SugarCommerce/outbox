@@ -41,6 +41,7 @@ final class Lock {
 	 * @throws \RuntimeException When the file cannot be opened at all, which
 	 *                           is a deployment problem worth hearing about.
 	 */
+	#[\NoDiscard( 'Null means another run holds the lock; a lock nobody keeps is released at once.' )]
 	public static function acquire( string $path ): ?self {
 		$handle = @fopen( $path, 'c' );
 

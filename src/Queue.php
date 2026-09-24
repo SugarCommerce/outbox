@@ -42,7 +42,7 @@ final readonly class Queue {
 	 * Comfortably longer than one attempt takes, and short enough that a
 	 * crashed run's rows go out on the next cron tick but one.
 	 */
-	public const LEASE = 300;
+	public const int LEASE = 300;
 
 	/**
 	 * @param Database    $db     Connection.
