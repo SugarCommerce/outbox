@@ -59,6 +59,37 @@ final class Lock {
 	}
 
 	/**
+	 * Run some work under the lock, or skip it while another process holds
+	 * it.
+	 *
+	 * Released when the work returns or throws, so one step's failure does
+	 * not keep its lock for the rest of the script.
+	 *
+	 * @since 1.2.0
+	 *
+	 * @param string   $path    Lock file. Created when missing.
+	 * @param \Closure $work    The work.
+	 * @param mixed    $skipped What to return when another run holds it.
+	 *
+	 * @return mixed What the work returned, or $skipped.
+	 *
+	 * @throws \RuntimeException When the lock file cannot be opened.
+	 */
+	public static function with( string $path, \Closure $work, mixed $skipped = null ): mixed {
+		$lock = self::acquire( $path );
+
+		if ( null === $lock ) {
+			return $skipped;
+		}
+
+		try {
+			return $work();
+		} finally {
+			$lock->release();
+		}
+	}
+
+	/**
 	 * Let the next run in.
 	 *
 	 * @return void

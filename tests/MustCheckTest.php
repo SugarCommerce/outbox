@@ -13,7 +13,7 @@ namespace SugarCommerce\Outbox\Tests;
 
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
-use SugarCommerce\Outbox\Lock;
+use SugarCommerce\Outbox\{Inbox, Lock, Pass};
 
 /**
  * Class MustCheckTest
@@ -25,17 +25,21 @@ use SugarCommerce\Outbox\Lock;
 final class MustCheckTest extends TestCase {
 
 	/**
-	 * @return array<string, array{string}>
+	 * @return array<string, array{class-string, string}>
 	 */
 	public static function methods(): array {
-		return array_combine( array( 'acquire' ), array_map( static fn ( string $m ): array => array( $m ), array( 'acquire' ) ) );
+		return array(
+			'Lock::acquire' => array( Lock::class, 'acquire' ),
+			'Inbox::claim'  => array( Inbox::class, 'claim' ),
+			'Pass::take'    => array( Pass::class, 'take' ),
+		);
 	}
 
 	#[DataProvider( 'methods' )]
-	public function test_the_result_must_be_used( string $method ): void {
-		$attributes = ( new \ReflectionMethod( Lock::class, $method ) )->getAttributes( \NoDiscard::class );
+	public function test_the_result_must_be_used( string $class, string $method ): void {
+		$attributes = ( new \ReflectionMethod( $class, $method ) )->getAttributes( \NoDiscard::class );
 
-		$this->assertCount( 1, $attributes, Lock::class . '::' . $method . ' lost #[\NoDiscard].' );
+		$this->assertCount( 1, $attributes, $class . '::' . $method . ' lost #[\NoDiscard].' );
 		$this->assertNotSame( '', $attributes[0]->newInstance()->message, 'Say why it matters.' );
 	}
 }

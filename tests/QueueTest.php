@@ -36,7 +36,8 @@ final class QueueTest extends TestCase {
 				status          TEXT    NOT NULL DEFAULT 'pending',
 				last_status     INTEGER,
 				last_error      TEXT,
-				date_sent       INTEGER
+				date_sent       INTEGER,
+				date_created    INTEGER NOT NULL DEFAULT 0
 			)"
 		);
 
@@ -180,5 +181,71 @@ final class QueueTest extends TestCase {
 		$this->expectException( \InvalidArgumentException::class );
 
 		new Table( 'outbox; DROP TABLE users' );
+	}
+
+	/* ─── Failed rows (1.2.0) ───────────────────────────────────────── */
+
+	private function failed_row(): int {
+		$id = $this->push();
+		$this->db->update( 'outbox', array( 'status' => 'failed', 'attempts' => 3, 'last_error' => 'Gone' ), array( 'id' => $id ) );
+
+		return $id;
+	}
+
+	public function test_failed_rows_are_counted(): void {
+		$this->failed_row();
+		$this->failed_row();
+		$this->push();
+
+		$this->assertSame( 2, $this->queue->failed_count() );
+	}
+
+	/**
+	 * A person decided to try again: the row is due now, with a full set of
+	 * attempts.
+	 */
+	public function test_a_failed_row_can_be_put_back(): void {
+		$id = $this->failed_row();
+
+		$this->assertSame( 1, $this->queue->retry( $id, self::NOW ) );
+
+		$this->assertSame( array( 'status' => 'pending', 'attempts' => 0, 'next_attempt_at' => self::NOW ), $this->db->row( 'SELECT status, attempts, next_attempt_at FROM outbox' ) );
+		$this->assertCount( 1, $this->queue->claim( self::NOW ) );
+	}
+
+	/**
+	 * Resetting a row a worker is sending would hand it to a second worker.
+	 */
+	public function test_only_a_failed_row_can_be_put_back(): void {
+		$id = $this->push();
+		$this->queue->claim( self::NOW );
+
+		$this->assertSame( 0, $this->queue->retry( $id, self::NOW ) );
+		$this->assertSame( 'sending', $this->state_of( $id ) );
+	}
+
+	/* ─── Purging (1.2.0) ───────────────────────────────────────────── */
+
+	public function test_purging_removes_old_finished_rows_only(): void {
+		$sent    = $this->push();
+		$failed  = $this->failed_row();
+		$waiting = $this->push();
+		$young   = $this->push();
+
+		$this->db->update( 'outbox', array( 'status' => 'sent' ), array( 'id' => $sent ) );
+		$this->db->update( 'outbox', array( 'status' => 'sent', 'date_created' => self::NOW ), array( 'id' => $young ) );
+
+		$this->assertSame( 2, $this->queue->purge( self::NOW, dry: true ) );
+		$this->assertSame( 4, $this->db->count( 'outbox' ), 'A dry run changes nothing.' );
+
+		$this->assertSame( 2, $this->queue->purge( self::NOW ) );
+		$this->assertSame( array( $waiting, $young ), array_map( 'intval', $this->db->column( 'SELECT id FROM outbox ORDER BY id' ) ) );
+		$this->assertNotContains( $failed, $this->db->column( 'SELECT id FROM outbox' ) );
+	}
+
+	public function test_a_queued_time_column_that_is_not_an_identifier_is_refused(): void {
+		$this->expectException( \InvalidArgumentException::class );
+
+		new Table( 'outbox', created_column: 'queued at' );
 	}
 }

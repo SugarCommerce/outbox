@@ -19,6 +19,8 @@ namespace SugarCommerce\Outbox;
  * queue and the next. Every queue table has `id`, `status`, `attempts`,
  * `next_attempt_at`, `claimed_until` and `last_error`; what a finished row is
  * called and where its finishing time goes are the application's own words.
+ * Purging old rows also needs to know when a row was queued: `date_created`
+ * unless named otherwise.
  *
  * These names are interpolated into SQL — identifiers cannot be bound — so
  * they are validated here, once, and the constructor throws rather than
@@ -27,12 +29,14 @@ namespace SugarCommerce\Outbox;
 final readonly class Table {
 
 	/**
-	 * @param string      $name          Table name.
-	 * @param string      $sent_status   Status for a row that went, e.g.
-	 *                                   'sent' or 'delivered'.
-	 * @param string      $sent_column   Column that records when it went.
-	 * @param string|null $status_column Column for the receiver's status
-	 *                                   code, when the table keeps one.
+	 * @param string      $name           Table name.
+	 * @param string      $sent_status    Status for a row that went, e.g.
+	 *                                    'sent' or 'delivered'.
+	 * @param string      $sent_column    Column that records when it went.
+	 * @param string|null $status_column  Column for the receiver's status
+	 *                                    code, when the table keeps one.
+	 * @param string      $created_column Column that records when a row was
+	 *                                    queued. Since 1.2.0.
 	 *
 	 * @throws \InvalidArgumentException On a name that is not a plain
 	 *                                   identifier.
@@ -42,8 +46,9 @@ final readonly class Table {
 		public string $sent_status = 'sent',
 		public string $sent_column = 'date_sent',
 		public ?string $status_column = null,
+		public string $created_column = 'date_created',
 	) {
-		foreach ( array( $name, $sent_status, $sent_column, $status_column ?? 'x' ) as $identifier ) {
+		foreach ( array( $name, $sent_status, $sent_column, $status_column ?? 'x', $created_column ) as $identifier ) {
 			if ( 1 !== preg_match( '/^[a-z_][a-z0-9_]*$/', $identifier ) ) {
 				throw new \InvalidArgumentException( 'Not a plain identifier: ' . $identifier );
 			}

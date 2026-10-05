@@ -176,4 +176,62 @@ final readonly class Queue {
 			array( 'cutoff' => ( $now ?? time() ) - $grace )
 		);
 	}
+
+	/**
+	 * Rows that gave up.
+	 *
+	 * For a health check or an attention badge: a failed row is something
+	 * nobody will retry until a person decides to.
+	 *
+	 * @since 1.2.0
+	 *
+	 * @return int
+	 */
+	public function failed_count(): int {
+		return $this->db->count( $this->table->name, array( 'status' => 'failed' ) );
+	}
+
+	/**
+	 * Put a row that gave up back in the queue, with its attempts reset.
+	 *
+	 * Only a failed row: one still pending or being sent is the queue's,
+	 * and resetting it would hand a second worker a row the first is
+	 * sending.
+	 *
+	 * @since 1.2.0
+	 *
+	 * @param int      $id  Row id.
+	 * @param int|null $now Current time. For tests.
+	 *
+	 * @return int Rows changed: 0 when it was not failed.
+	 */
+	public function retry( int $id, ?int $now = null ): int {
+		return $this->db->update(
+			$this->table->name,
+			array( 'status' => 'pending', 'attempts' => 0, 'next_attempt_at' => $now ?? time(), 'claimed_until' => null ),
+			array( 'id' => $id, 'status' => 'failed' )
+		);
+	}
+
+	/**
+	 * Remove finished rows queued before a cut-off.
+	 *
+	 * Sent or failed, never pending or sending. A delivered payload is a
+	 * copy of whatever it carried, kept for no reason once it has arrived.
+	 *
+	 * @since 1.2.0
+	 *
+	 * @param int  $before Unix time: rows queued before this go.
+	 * @param bool $dry    Count them instead.
+	 *
+	 * @return int Rows removed, or that would have been.
+	 */
+	public function purge( int $before, bool $dry = false ): int {
+		return $this->db->sweep(
+			$this->table->name,
+			"status NOT IN ('pending', 'sending') AND {$this->table->created_column} < :before",
+			array( 'before' => $before ),
+			dry: $dry
+		);
+	}
 }
