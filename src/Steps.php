@@ -38,6 +38,8 @@ namespace SugarCommerce\Outbox;
 final readonly class Steps {
 
 	/**
+	 * Report failures to a function of your own.
+	 *
 	 * @since 1.2.0
 	 *
 	 * @param \Closure(string, \Throwable): void $failed Told about a step
@@ -65,9 +67,9 @@ final readonly class Steps {
 	 *
 	 * @since 1.2.0
 	 *
-	 * @param string   $name     What to call it when it fails.
-	 * @param \Closure $work     The step.
-	 * @param mixed    $fallback What it counts as when it throws.
+	 * @param string          $name     What to call it when it fails.
+	 * @param \Closure(): mixed $work     The step.
+	 * @param mixed           $fallback What it counts as when it throws.
 	 *
 	 * @return mixed What the step returned, or the fallback.
 	 */

@@ -146,6 +146,8 @@ For a sweep that counts its own failures rather than reading a status code, `Ret
 
 ## What it does not do
 
+A worker that outlives its lease has lost the row: its result is dropped rather than written over the next worker's, so a late failure cannot put back a row that has since been sent. On the inbox side, `fail()` and `complete()` only touch an event that is still pending — a delivery that finishes late cannot mark a handled event failed and have the next retry run the handler again.
+
 It does not promise exactly-once. A send that succeeded just before its worker died is sent again when the lease runs out. Receivers of anything queued have to tolerate a duplicate; give them a stable id to deduplicate on — and if the receiver is yours, that is what `Inbox` is for.
 
 ## Testing
@@ -155,7 +157,7 @@ composer install
 composer test
 ```
 
-46 tests — atomic claims and leases, retries by status and `Retry-After`, a throwing sender, overdue and failed counts, putting a failed row back, purging finished rows only, the inbox's first delivery, busy and done repeats, failure and stale takeovers with one owner, and the run bounds: budgets, passes, isolated steps and locks released on a throw.
+53 tests — atomic claims and leases, settling only under the claim's own lease, retries by status and `Retry-After`, a throwing sender, overdue and failed counts, putting a failed row back, purging finished rows only, the inbox's first delivery, busy and done repeats, failure and stale takeovers with one owner, and the run bounds: budgets, passes, isolated steps and locks released on a throw.
 
 ## License
 

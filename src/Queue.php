@@ -33,6 +33,13 @@ use SugarCommerce\Webhooks\RetryPolicy;
  * runs out they are due again — nothing has to notice or clean up. The cost
  * is that a send which succeeded just before a crash is sent once more,
  * which every receiver of a queue like this has to tolerate anyway.
+ *
+ * **Settled only by the claim's holder.** A worker that outlives its lease
+ * has lost the row to whoever claimed it next. Its result is not written:
+ * otherwise a slow failure could put back a row the second worker had
+ * already sent, and it would go a third time.
+ *
+ * @since 1.0.0
  */
 final readonly class Queue {
 
@@ -41,10 +48,16 @@ final readonly class Queue {
 	 *
 	 * Comfortably longer than one attempt takes, and short enough that a
 	 * crashed run's rows go out on the next cron tick but one.
+	 *
+	 * @since 1.0.0
 	 */
 	public const int LEASE = 300;
 
 	/**
+	 * Run a queue over one table.
+	 *
+	 * @since 1.0.0
+	 *
 	 * @param Database    $db     Connection.
 	 * @param Table       $table  Which table, and its names.
 	 * @param RetryPolicy $policy When to try again after a failure.
@@ -58,9 +71,13 @@ final readonly class Queue {
 	/**
 	 * Claim and attempt everything due, settling each row.
 	 *
-	 * @param \Closure(array): Outcome $attempt Sends one row.
-	 * @param int                      $limit   Rows to attempt in this run.
-	 * @param int|null                 $now     Current time. For tests.
+	 * @since 1.0.0
+	 *
+	 * @param \Closure(array<string, mixed>): Outcome $attempt Sends one row.
+	 * @param int                                     $limit   Rows to attempt in
+	 *                                                         this run.
+	 * @param int|null                                $now     Current time. For
+	 *                                                         tests.
 	 *
 	 * @return array{attempted: int, sent: int, failed: int}
 	 */
@@ -91,13 +108,20 @@ final readonly class Queue {
 	 * Due means pending and past its time, or claimed by a worker whose lease
 	 * has run out.
 	 *
+	 * @since 1.0.0
+	 *
 	 * @param int $now   Current time.
-	 * @param int $limit Maximum rows.
+	 * @param int $limit Maximum rows. Less than one claims nothing — a
+	 *                   negative LIMIT is no limit at all to SQLite.
 	 * @param int $lease Seconds the claim holds.
 	 *
-	 * @return array<int, array> The claimed rows, as they now stand.
+	 * @return list<array<string, mixed>> The claimed rows, as they now stand.
 	 */
 	public function claim( int $now, int $limit = 100, int $lease = self::LEASE ): array {
+		if ( $limit < 1 ) {
+			return array();
+		}
+
 		$table = $this->table->name;
 		$due   = "( status = 'pending' AND next_attempt_at <= :now )
 		          OR ( status = 'sending' AND claimed_until < :now )";
@@ -110,14 +134,20 @@ final readonly class Queue {
 		$claimed = array();
 
 		foreach ( $ids as $id ) {
+			if ( ! is_int( $id ) ) {
+				continue;
+			}
+
 			$won = $this->db->query(
 				"UPDATE {$table} SET status = 'sending', claimed_until = :until
 				  WHERE id = :id AND ( {$due} )",
-				array( 'id' => (int) $id, 'now' => $now, 'until' => $now + $lease )
+				array( 'id' => $id, 'now' => $now, 'until' => $now + $lease )
 			)->rowCount();
 
-			if ( 1 === $won ) {
-				$claimed[] = (array) $this->db->row( "SELECT * FROM {$table} WHERE id = :id", array( 'id' => (int) $id ) );
+			$row = 1 === $won ? $this->db->row( "SELECT * FROM {$table} WHERE id = :id", array( 'id' => $id ) ) : null;
+
+			if ( null !== $row ) {
+				$claimed[] = $row;
 			}
 		}
 
@@ -127,14 +157,21 @@ final readonly class Queue {
 	/**
 	 * Record how an attempt went.
 	 *
-	 * @param array   $row     The claimed row.
-	 * @param Outcome $outcome What happened.
-	 * @param int     $now     Current time.
+	 * Written only while the row is still this claim's: still `sending`,
+	 * under the same lease. A worker that ran past its lease has lost the
+	 * row to another, and what it has to say is dropped rather than written
+	 * over whatever the other worker recorded.
+	 *
+	 * @since 1.0.0
+	 *
+	 * @param array<string, mixed> $row     The row as claim() returned it.
+	 * @param Outcome              $outcome What happened.
+	 * @param int                  $now     Current time.
 	 *
 	 * @return bool Whether it was sent.
 	 */
 	public function settle( array $row, Outcome $outcome, int $now ): bool {
-		$attempt = (int) $row['attempts'] + 1;
+		$attempt = self::whole( $row['attempts'] ?? 0 ) + 1;
 		$fields  = array( 'attempts' => $attempt, 'claimed_until' => null );
 
 		if ( null !== $this->table->status_column ) {
@@ -153,7 +190,15 @@ final readonly class Queue {
 			$fields['next_attempt_at'] = $now + ( $again ? $this->policy->delay( $attempt, $outcome->retry_after ) : 0 );
 		}
 
-		$this->db->update( $this->table->name, $fields, array( 'id' => (int) $row['id'] ) );
+		$this->db->update(
+			$this->table->name,
+			$fields,
+			array(
+				'id'            => self::whole( $row['id'] ?? 0 ),
+				'status'        => 'sending',
+				'claimed_until' => self::whole( $row['claimed_until'] ?? 0 ),
+			)
+		);
 
 		return $outcome->sent;
 	}
@@ -164,17 +209,19 @@ final readonly class Queue {
 	 * For a health check: a queue whose worker has stopped does not fail, it
 	 * just fills up, and nothing else will say so.
 	 *
+	 * @since 1.0.0
+	 *
 	 * @param int      $grace Seconds past due before a row counts.
 	 * @param int|null $now   Current time. For tests.
 	 *
 	 * @return int
 	 */
 	public function overdue( int $grace = 900, ?int $now = null ): int {
-		return (int) $this->db->value(
+		return self::whole( $this->db->value(
 			"SELECT COUNT(*) FROM {$this->table->name}
 			  WHERE status IN ('pending', 'sending') AND next_attempt_at < :cutoff",
 			array( 'cutoff' => ( $now ?? time() ) - $grace )
-		);
+		) );
 	}
 
 	/**
@@ -233,5 +280,22 @@ final readonly class Queue {
 			array( 'before' => $before ),
 			dry: $dry
 		);
+	}
+
+	/**
+	 * A number read back from SQLite, as an int.
+	 *
+	 * @since 1.3.0
+	 *
+	 * @param mixed $value A column's value.
+	 *
+	 * @return int Zero for anything that is not a number.
+	 */
+	private static function whole( mixed $value ): int {
+		return match ( true ) {
+			is_int( $value )     => $value,
+			is_numeric( $value ) => (int) $value,
+			default              => 0,
+		};
 	}
 }

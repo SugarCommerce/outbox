@@ -25,10 +25,34 @@ namespace SugarCommerce\Outbox;
  * These names are interpolated into SQL — identifiers cannot be bound — so
  * they are validated here, once, and the constructor throws rather than
  * guess.
+ *
+ * @since 1.0.0
  */
 final readonly class Table {
 
 	/**
+	 * The statuses the queue itself moves a row through.
+	 *
+	 * @since 1.3.0
+	 *
+	 * @var list<string>
+	 */
+	public const array QUEUE_STATUSES = array( 'pending', 'sending', 'failed' );
+
+	/**
+	 * The columns the queue itself writes.
+	 *
+	 * @since 1.3.0
+	 *
+	 * @var list<string>
+	 */
+	public const array QUEUE_COLUMNS = array( 'id', 'status', 'attempts', 'next_attempt_at', 'claimed_until', 'last_error' );
+
+	/**
+	 * Name the table and the columns that differ from queue to queue.
+	 *
+	 * @since 1.0.0
+	 *
 	 * @param string      $name           Table name.
 	 * @param string      $sent_status    Status for a row that went, e.g.
 	 *                                    'sent' or 'delivered'.
@@ -39,7 +63,10 @@ final readonly class Table {
 	 *                                    queued. Since 1.2.0.
 	 *
 	 * @throws \InvalidArgumentException On a name that is not a plain
-	 *                                   identifier.
+	 *                                   identifier; a sent status the queue
+	 *                                   already uses, which would send the
+	 *                                   row again or never; or a column the
+	 *                                   queue already writes.
 	 */
 	public function __construct(
 		public string $name,
@@ -49,8 +76,19 @@ final readonly class Table {
 		public string $created_column = 'date_created',
 	) {
 		foreach ( array( $name, $sent_status, $sent_column, $status_column ?? 'x', $created_column ) as $identifier ) {
-			if ( 1 !== preg_match( '/^[a-z_][a-z0-9_]*$/', $identifier ) ) {
+			// `$` alone also matches before a final newline.
+			if ( 1 !== preg_match( '/^[a-z_][a-z0-9_]*$/D', $identifier ) ) {
 				throw new \InvalidArgumentException( 'Not a plain identifier: ' . $identifier );
+			}
+		}
+
+		if ( in_array( $sent_status, self::QUEUE_STATUSES, true ) ) {
+			throw new \InvalidArgumentException( 'The sent status cannot be one the queue uses: ' . $sent_status );
+		}
+
+		foreach ( array( $sent_column, $status_column ) as $column ) {
+			if ( in_array( $column, self::QUEUE_COLUMNS, true ) ) {
+				throw new \InvalidArgumentException( 'The queue already writes the column ' . $column );
 			}
 		}
 	}

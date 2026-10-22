@@ -70,6 +70,8 @@ final readonly class Inbox {
 	 * columns of your own, and pass them to claim().
 	 *
 	 * @since 1.2.0
+	 *
+	 * @var string
 	 */
 	public const string SCHEMA = "CREATE TABLE IF NOT EXISTS inbox (
 	id             INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -83,6 +85,8 @@ final readonly class Inbox {
 )";
 
 	/**
+	 * Use a table of events on a connection.
+	 *
 	 * @since 1.2.0
 	 *
 	 * @param Database $db          Connection.
@@ -93,7 +97,9 @@ final readonly class Inbox {
 	 *                              taken over.
 	 *
 	 * @throws \InvalidArgumentException On a name that is not a plain
-	 *                                   identifier.
+	 *                                   identifier, or a stale time under
+	 *                                   a second — every retry would take
+	 *                                   over a handler still running.
 	 */
 	public function __construct(
 		private Database $db,
@@ -103,6 +109,10 @@ final readonly class Inbox {
 	) {
 		Database::identifier( $table );
 		Database::identifier( $key );
+
+		if ( $stale_after < 1 ) {
+			throw new \InvalidArgumentException( 'A claim must hold for at least a second.' );
+		}
 	}
 
 	/**
@@ -116,6 +126,9 @@ final readonly class Inbox {
 	 * @param int|null             $now    Current time. For tests.
 	 *
 	 * @return Claim
+	 *
+	 * @throws \InvalidArgumentException On a field name that is not a plain
+	 *                                   identifier.
 	 */
 	#[\NoDiscard( 'Only an Owned claim may run the handler; the others must not.' )]
 	public function claim( string $id, array $fields = array(), ?int $now = null ): Claim {
@@ -157,6 +170,9 @@ final readonly class Inbox {
 	/**
 	 * Mark an event handled.
 	 *
+	 * Done is final: a delivery that lost its claim to a retry and finishes
+	 * late changes nothing.
+	 *
 	 * @since 1.2.0
 	 *
 	 * @param string   $id  The sender's event id.
@@ -165,11 +181,23 @@ final readonly class Inbox {
 	 * @return int Rows changed.
 	 */
 	public function complete( string $id, ?int $now = null ): int {
-		return $this->db->update( $this->table, array( 'status' => 'done', 'date_processed' => $now ?? time() ), array( $this->key => $id ) );
+		return $this->db->update(
+			$this->table,
+			array( 'status' => 'done', 'date_processed' => $now ?? time() ),
+			array( $this->key => $id, 'status' => 'pending' )
+		);
 	}
 
 	/**
 	 * Mark an event failed, so the sender's retry can take it over.
+	 *
+	 * Only one still pending. A delivery that ran past STALE_AFTER may
+	 * fail after a retry took the event over and finished it; marking that
+	 * failed would hand the next retry an event already handled, and the
+	 * handler would run twice — which is what this class is for preventing.
+	 *
+	 * The error is stored as given. An exception's message can carry a URL
+	 * with a token in it, or a customer's address: pass what is safe to keep.
 	 *
 	 * @since 1.2.0
 	 *
@@ -179,6 +207,10 @@ final readonly class Inbox {
 	 * @return int Rows changed.
 	 */
 	public function fail( string $id, string $error ): int {
-		return $this->db->update( $this->table, array( 'status' => 'failed', 'last_error' => $error ), array( $this->key => $id ) );
+		return $this->db->update(
+			$this->table,
+			array( 'status' => 'failed', 'last_error' => $error ),
+			array( $this->key => $id, 'status' => 'pending' )
+		);
 	}
 }

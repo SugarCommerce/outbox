@@ -77,6 +77,26 @@ final class InboxTest extends TestCase {
 	}
 
 	/**
+	 * A delivery that ran past STALE_AFTER fails after a retry took over
+	 * and finished. Marking it failed would let the next retry run the
+	 * handler a second time.
+	 */
+	public function test_a_late_failure_does_not_undo_a_finished_event(): void {
+		$this->assertTrue( $this->inbox->claim( 'evt_1', now: self::NOW )->owned() );
+		$this->assertTrue( $this->inbox->claim( 'evt_1', now: self::NOW + Inbox::STALE_AFTER + 1 )->owned() );
+		$this->assertSame( 1, $this->inbox->complete( 'evt_1', self::NOW + Inbox::STALE_AFTER + 2 ) );
+
+		$this->assertSame( 0, $this->inbox->fail( 'evt_1', 'the first delivery, late' ) );
+		$this->assertSame( Claim::Done, $this->inbox->claim( 'evt_1', now: self::NOW + 10_000 ) );
+	}
+
+	public function test_a_claim_must_hold_for_at_least_a_second(): void {
+		$this->expectException( \InvalidArgumentException::class );
+
+		new Inbox( $this->db, stale_after: 0 );
+	}
+
+	/**
 	 * The classic version of the bug: the first attempt failed, the
 	 * sender's retry was answered "already processed", and the event was
 	 * never handled.

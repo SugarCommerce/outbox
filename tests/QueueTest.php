@@ -183,6 +183,54 @@ final class QueueTest extends TestCase {
 		new Table( 'outbox; DROP TABLE users' );
 	}
 
+	/**
+	 * Worker A ran past its lease; worker B claimed the row and sent it. A's
+	 * late failure must not put the row back to go a third time.
+	 */
+	public function test_a_worker_that_lost_its_lease_cannot_settle_the_row(): void {
+		$id    = $this->push();
+		$stale = $this->queue->claim( self::NOW, lease: 60 )[0];
+		$fresh = $this->queue->claim( self::NOW + 61 )[0];
+
+		$this->queue->settle( $fresh, Outcome::sent( 200 ), self::NOW + 62 );
+		$this->queue->settle( $stale, Outcome::failed( 'timed out', 504 ), self::NOW + 63 );
+
+		$this->assertSame( 'sent', $this->state_of( $id ) );
+		$this->assertCount( 0, $this->queue->claim( self::NOW + 10_000 ) );
+	}
+
+	/**
+	 * A negative LIMIT is no limit to SQLite.
+	 */
+	public function test_a_limit_below_one_claims_nothing(): void {
+		$this->push();
+		$this->push();
+
+		$this->assertSame( array(), $this->queue->claim( self::NOW, -1 ) );
+		$this->assertCount( 2, $this->queue->claim( self::NOW ) );
+	}
+
+	public function test_a_name_with_a_trailing_newline_is_refused(): void {
+		$this->expectException( \InvalidArgumentException::class );
+
+		new Table( "outbox\n" );
+	}
+
+	/**
+	 * A sent status of `pending` would send the row for ever.
+	 */
+	public function test_a_sent_status_the_queue_uses_is_refused(): void {
+		$this->expectException( \InvalidArgumentException::class );
+
+		new Table( 'outbox', sent_status: 'pending' );
+	}
+
+	public function test_a_sent_column_the_queue_writes_is_refused(): void {
+		$this->expectException( \InvalidArgumentException::class );
+
+		new Table( 'outbox', sent_column: 'next_attempt_at' );
+	}
+
 	/* ─── Failed rows (1.2.0) ───────────────────────────────────────── */
 
 	private function failed_row(): int {

@@ -39,10 +39,16 @@ final readonly class Budget {
 
 	/**
 	 * When the budget runs out, as hrtime seconds.
+	 *
+	 * @since 1.2.0
+	 *
+	 * @var float
 	 */
 	private float $until;
 
 	/**
+	 * Start the clock.
+	 *
 	 * @since 1.2.0
 	 *
 	 * @param float $seconds How long from now. 0 or less is unlimited, for

@@ -19,10 +19,16 @@ namespace SugarCommerce\Outbox;
  * are three things a queue can do next: mark it done, try again later, or
  * give up now without trying again — the last for a row whose destination is
  * gone, where retrying would only be noise.
+ *
+ * @since 1.0.0
  */
 final readonly class Outcome {
 
 	/**
+	 * Hold an answer; the named constructors are the way in.
+	 *
+	 * @since 1.0.0
+	 *
 	 * @param bool     $sent        Whether it went.
 	 * @param int      $status      The receiver's status code, 0 for none.
 	 * @param string   $error       Why not, when it did not.
@@ -40,6 +46,8 @@ final readonly class Outcome {
 	/**
 	 * It went.
 	 *
+	 * @since 1.0.0
+	 *
 	 * @param int $status The receiver's status code, if there was one.
 	 *
 	 * @return self
@@ -50,6 +58,8 @@ final readonly class Outcome {
 
 	/**
 	 * It did not; the retry policy decides whether to try again.
+	 *
+	 * @since 1.0.0
 	 *
 	 * @param string   $error       What went wrong.
 	 * @param int      $status      Status code, 0 for a transport failure.
@@ -63,6 +73,8 @@ final readonly class Outcome {
 
 	/**
 	 * It did not, and it never will.
+	 *
+	 * @since 1.0.0
 	 *
 	 * @param string $error Why.
 	 *

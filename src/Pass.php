@@ -42,15 +42,25 @@ final class Pass {
 
 	/**
 	 * Rows still allowed.
+	 *
+	 * @since 1.2.0
+	 *
+	 * @var int
 	 */
 	private int $left;
 
 	/**
 	 * When the run's time is up.
+	 *
+	 * @since 1.2.0
+	 *
+	 * @var Budget
 	 */
 	private readonly Budget $budget;
 
 	/**
+	 * Start a run.
+	 *
 	 * @since 1.2.0
 	 *
 	 * @param int         $now    Current time.

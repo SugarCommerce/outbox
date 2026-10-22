@@ -23,16 +23,24 @@ namespace SugarCommerce\Outbox;
  * Released when the process ends, however it ends, because the operating
  * system drops an flock with the file handle. A crashed run cannot leave the
  * queue locked.
+ *
+ * @since 1.0.0
  */
 final class Lock {
 
 	/**
+	 * Hold an open, locked file; acquire() is the way in.
+	 *
+	 * @since 1.0.0
+	 *
 	 * @param resource $handle The open, locked file.
 	 */
 	private function __construct( private $handle ) {}
 
 	/**
 	 * Take the lock, or return null when another process holds it.
+	 *
+	 * @since 1.0.0
 	 *
 	 * @param string $path Lock file. Created when missing.
 	 *
@@ -67,9 +75,9 @@ final class Lock {
 	 *
 	 * @since 1.2.0
 	 *
-	 * @param string   $path    Lock file. Created when missing.
-	 * @param \Closure $work    The work.
-	 * @param mixed    $skipped What to return when another run holds it.
+	 * @param string          $path    Lock file. Created when missing.
+	 * @param \Closure(): mixed $work    The work.
+	 * @param mixed           $skipped What to return when another run holds it.
 	 *
 	 * @return mixed What the work returned, or $skipped.
 	 *
@@ -91,6 +99,8 @@ final class Lock {
 
 	/**
 	 * Let the next run in.
+	 *
+	 * @since 1.0.0
 	 *
 	 * @return void
 	 */

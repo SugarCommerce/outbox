@@ -1,6 +1,6 @@
 {
   "name": "sugarcommerce/outbox",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "A durable send queue on SQLite: rows claimed atomically under a lease so overlapping workers never send twice, a crashed worker's rows come back on their own, and retries follow a status-aware backoff policy. An inbox that handles each incoming event once. Plus the pieces that bound a cron run: a lock, a time budget and steps that cannot stop each other.",
   "type": "library",
   "license": "GPL-2.0-or-later",
